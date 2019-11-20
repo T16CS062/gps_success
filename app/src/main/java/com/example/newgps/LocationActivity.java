@@ -2,37 +2,96 @@ package com.example.newgps;
 
 //AndroidX
 //import androidx.core.app.ActivityCompat;
-import android.support.v4.app.ActivityCompat;
-
 import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.location.LocationProvider;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.support.v4.app.ActivityCompat;
+import android.support.v4.app.FragmentActivity;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.text.SimpleDateFormat;
+import java.util.List;
 import java.util.Locale;
+import android.os.Handler;
 
-public class LocationActivity extends Activity implements LocationListener {
+import twitter4j.Status;
+import twitter4j.Twitter;
+import twitter4j.TwitterException;
+import twitter4j.TwitterFactory;
+import twitter4j.User;
+import twitter4j.conf.ConfigurationBuilder;
+
+//import twitter4j.Tweet;
+//AndroidX
+//import androidx.appcompat.app.AppCompatActivity;
+//import androidx.annotation.NonNull;
+//import androidx.core.app.ActivityCompat;
+//import androidx.core.content.ContextCompat;
+
+import android.app.Activity;
+import android.os.AsyncTask;
+import android.os.Bundle;
+import android.view.View;
+import android.view.View.OnClickListener;
+import android.widget.TextView;
+
+import android.content.Intent;
+import android.os.Bundle;
+import android.support.v4.app.FragmentTransaction;
+import android.view.View;
+import android.support.v7.app.AppCompatActivity;
+import android.support.v4.app.FragmentManager;
+import android.support.v4.app.FragmentTransaction;
+import java.util.ArrayList;
+
+public class LocationActivity extends FragmentActivity implements LocationListener,SensorEventListener {
 
     private LocationManager locationManager;
-    private TextView textView;
+    private TextView textView,textGyro,textTweet;
     private StringBuilder strBuf = new StringBuilder();
+    private StringBuilder strBuf_gyro = new StringBuilder();
 
-    private static final int MinTime = 1000;
-    private static final float MinDistance = 50;
+    private static final int MinTime = 0;
+    private static final float MinDistance = 0;
 
+    private SensorManager sensorManager;
+
+    private String str_tweet = new String(); // 取得したツイートが格納される（N:○○ E:○○）
+
+    // Twitterオブジェクト
+    private Twitter twitter = null;
+
+    private ArrayList<Float> gps_list = new ArrayList<Float>(); // 0: 1: 2:
+    private ArrayList<Float> gyro_list = new ArrayList<Float>(); //0:X 1:Y 2:Z
+    private ArrayList<Float> balloon_list = new ArrayList<Float>(); //0:N 1:E
+
+    public LocationActivity() {
+        // OAuth認証用設定（1）
+        ConfigurationBuilder configurationBuilder = new ConfigurationBuilder();
+
+        configurationBuilder.setOAuthConsumerKey("tVt7q8NvBZJlGFtJC19Mim4rv");
+        configurationBuilder.setOAuthConsumerSecret("vTw3OsWpyGaCmyUTZAFPo7pkqNGpKLwUqbMrcFwJJyKJMSCEts");
+        configurationBuilder.setOAuthAccessToken("1115672515966160896-jy5SY4ZPJC6ItqoC1KFP5A5UUijUkh");
+        configurationBuilder.setOAuthAccessTokenSecret("wnrKoLyHj2fXceLlAeNrRmfElOMbeez5KKfWqO4IxKnJE");
+
+        // Twitterオブジェクトの初期化（2）
+        twitter = new TwitterFactory(configurationBuilder.build()).getInstance();
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -44,7 +103,20 @@ public class LocationActivity extends Activity implements LocationListener {
         // LocationManager インスタンス生成
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
 
+
+
+
+
+        // Get an instance of the SensorManager
+        sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
+
+
+
+
         textView = findViewById(R.id.text_view);
+        textGyro = findViewById(R.id.text_gyro);
+        textTweet = findViewById(R.id.Tweet1);
+
 
         // GPS測位開始
         Button buttonStart = findViewById(R.id.button_start);
@@ -63,12 +135,46 @@ public class LocationActivity extends Activity implements LocationListener {
                 stopGPS();
             }
         });
+
+
+        /*
+        Button buttonTweet = findViewById(R.id.button1);
+        buttonTweet.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startTweet();
+            }
+        });
+        */
+        // GPS測位(定期実行)開始
+        final Handler handler = new Handler();
+        final Runnable r = new Runnable() {
+            @Override
+            public void run() {
+            // UIスレッド
+                startTweet();
+                handler.postDelayed(this, 1000);
+            }
+        };
+        handler.post(r);
     }
 
     protected void startGPS() {
 
         strBuf.append("startGPS\n");
         textView.setText(strBuf);
+        textGyro.setText(strBuf_gyro);
+
+        // Listenerの登録
+        Sensor gyro = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
+
+        if(gyro != null){
+            sensorManager.registerListener(this, gyro, SensorManager.SENSOR_DELAY_UI);
+        }
+        else{
+            String ns = "No Support";
+            //textGyro.setText(ns);
+        }
 
         Log.d("LocationActivity", "gpsEnabled");
         final boolean gpsEnabled
@@ -136,11 +242,16 @@ public class LocationActivity extends Activity implements LocationListener {
             locationManager.removeUpdates(this);
         }
 
+        // Listenerを解除
+        sensorManager.unregisterListener(this);
+
         super.onPause();
     }
 
     @Override
     public void onLocationChanged(Location location) {
+
+/*
         strBuf.append("----------\n");
 
         String str = "Latitude = " +String.valueOf(location.getLatitude()) + "\n";
@@ -170,7 +281,94 @@ public class LocationActivity extends Activity implements LocationListener {
         strBuf.append("----------\n");
 
         textView.setText(strBuf);
+*/
+        String strTmp = String.format(Locale.US, "GPS\n " +
+                " Latitude: %f\n " +
+                " Longitude: %f\n " +
+                " Bearing: %f",
+                location.getLatitude(), location.getLongitude(), location.getBearing());
+
+        textView.setText(strTmp);
+        if(gps_list == null || gps_list.size() == 0){
+            gps_list.add(0,(float)location.getLatitude());
+            gps_list.add(1,(float)location.getLongitude());
+            gps_list.add(2,location.getBearing());
+        }else{
+            gps_list.set(0,(float)location.getLatitude());
+            gps_list.set(1,(float)location.getLongitude());
+            gps_list.set(2,location.getBearing());
+        }
+/*
+        // Fragment側に渡す変数を用意します。
+        Bundle args = new Bundle();
+        args.putParcelableArrayList("GYRO", gyro_list);
+        args.putString("VALUE02", "変数の値2");
+
+        // FragmentTransactionを生成。
+        FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
+        // TestFragmentを生成。
+        MainFragment fragment = new MainFragment();
+        //Fragmentに渡す変数をセット
+        fragment.setArguments(args);
+        // FragmentTransactionに、TestFragmentをセット
+        transaction.add(R.id.fragment_main, fragment);
+        // FragmentTransactionをコミット
+        transaction.commit();
+
+*/
     }
+
+
+    /*sensorEvent*/
+    /*------------------------------------------------*/
+    @Override
+    public void onSensorChanged(SensorEvent event) {
+
+        Log.d("debug","onSensorChanged");
+
+        if (event.sensor.getType() == Sensor.TYPE_GYROSCOPE) {
+          //  strBuf_gyro = null;
+            float sensorX = event.values[0];
+            float sensorY = event.values[1];
+            float sensorZ = event.values[2];
+
+            String strTmp = String.format(Locale.US, "Gyroscope\n " +
+                    "X: %f\n " +
+                    "Y: %f\n " +
+                    "Z: %f",
+                    sensorX, sensorY, sensorZ);
+            textGyro.setText(strTmp);
+            if(gyro_list == null || gyro_list.size() == 0){
+                gyro_list.add(0,sensorX);
+                gyro_list.add(1,sensorY);
+                gyro_list.add(2,sensorZ);
+            }else {
+                gyro_list.set(0, sensorX);
+                gyro_list.set(1, sensorY);
+                gyro_list.set(2, sensorZ);
+            }
+            /*
+            String str = "GyroX = " + String.valueOf(sensorX) + "\n";
+            strBuf_gyro.append(str);
+            str = "GyroY = " + String.valueOf(sensorY) + "\n";
+            strBuf_gyro.append(str);
+            str = "GyroZ = " + String.valueOf(sensorZ) + "\n";
+            strBuf_gyro.append(str);
+
+            textGyro.setText(strBuf_gyro);
+            */
+
+        }
+
+
+    }
+
+
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {
+
+    }
+    /*------------------------------------------------*/
 
     @Override
     public void onProviderDisabled(String provider) {
@@ -229,4 +427,76 @@ public class LocationActivity extends Activity implements LocationListener {
         super.onStop();
         stopGPS();
     }
+
+     private void startTweet() {
+         Log.d("LocationActivity", "startTweet()");
+         // スレッド起動
+         new GetUserTweet(this).execute();
+
+         textTweet.setText(this.str_tweet);
+
+         // 取得される文字列の例 "N35.6858216667 E139.756656667"
+         // 空白の位置indexを見つける
+         // 現在は北緯、東経であると仮定している
+         int index = this.str_tweet.indexOf(" ");
+
+         if(index >= -1) { //tweetをまだ所得できていない状態
+         }else if(balloon_list == null || balloon_list.size() == 0){
+             balloon_list.add(0, Float.valueOf(this.str_tweet.substring(1,index)));
+             balloon_list.add(1, Float.valueOf(this.str_tweet.substring(index+1)));
+        }else{
+             balloon_list.set(0, Float.valueOf(this.str_tweet.substring(1, index)));
+             balloon_list.set(1, Float.valueOf(this.str_tweet.substring(index + 1)));
+         }
+
+    }
+
+    public void setStr(String str_tweet) {
+        this.str_tweet = str_tweet;
+    }
+
+    class GetUserTweet extends AsyncTask<Void, Void, String>{
+
+        private LocationActivity activity;
+
+
+        public GetUserTweet(LocationActivity activity) {
+            this.activity = activity;
+        }
+
+        @Override
+        protected void onPreExecute() {
+            // ここに前処理を記述します
+            // 例） プログレスダイアログ表示
+        }
+        @Override
+        protected String doInBackground(Void... arg0) {
+            try {
+
+                User user = twitter.showUser("@balloon_chase");
+                long id = user.getId();
+                List tweetList = twitter.getUserTimeline(id);
+                twitter4j.Status tweet = (twitter4j.Status) tweetList.get(0);
+                System.out.println(tweet.getText());
+                return tweet.getText();
+
+            } catch (TwitterException e) {
+                Log.d("twitter", e.getMessage());
+            }
+
+            return null;
+
+        }
+
+        @Override
+        protected void onPostExecute(String result) {
+            // バックグランド処理終了後の処理をここに記述します
+            // 例） プログレスダイアログ終了
+            //    UIコンポーネントへの処理
+
+            activity.setStr(result);
+        }
+    }
+
+
 }
