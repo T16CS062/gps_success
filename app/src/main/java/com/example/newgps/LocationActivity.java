@@ -246,8 +246,9 @@ public class LocationActivity extends FragmentActivity implements LocationListen
 
     // 矢印の状態の更新
     void update_state() {
-        i += 10;
-        arrowView.setRotation(arrow_direction());
+        i += 25;
+        //arrowView.setRotation(arrow_direction());
+        arrowView.setRotation(i);
     }
 
     private float arrow_direction() // 方角を返す
@@ -261,6 +262,20 @@ public class LocationActivity extends FragmentActivity implements LocationListen
             );
             return Fai - location_list.get(2);
         }
+        /*
+        if(location_list == null){
+            System.out.println("l_null");
+        }
+        if(location_list.size() == 0){
+            System.out.println("l_0");
+        }
+        if(balloon_list == null){
+            System.out.println("b_null");
+        }
+        if(balloon_list.size() == 0){
+            System.out.println("b_0");
+        }
+*/
         return 0;
     }
 
@@ -576,18 +591,23 @@ public class LocationActivity extends FragmentActivity implements LocationListen
 
          textTweet.setText("Balloon_GPS\n " + this.str_tweet);
 
+
          // 取得される文字列の例 "N35.6858216667 E139.756656667"
          // 空白の位置indexを見つける
          // 現在は北緯、東経であると仮定している
-         int index = this.str_tweet.indexOf(" ");
+         if(this.str_tweet.contains("N")) { //tweetを所得できている状態
 
-         if(index >= -1) { //tweetをまだ所得できていない状態
-         }else if(balloon_list == null || balloon_list.size() == 0){
-             balloon_list.add(0, Float.valueOf(this.str_tweet.substring(1,index)));
-             balloon_list.add(1, Float.valueOf(this.str_tweet.substring(index+1)));
-        }else{
-             balloon_list.set(0, Float.valueOf(this.str_tweet.substring(1, index)));
-             balloon_list.set(1, Float.valueOf(this.str_tweet.substring(index + 1)));
+             int index = this.str_tweet.indexOf(" ");
+
+             if (balloon_list == null || balloon_list.size() == 0) {
+                 balloon_list.add(0, Float.valueOf(this.str_tweet.substring(1, index)));
+                 balloon_list.add(1, Float.valueOf(this.str_tweet.substring(index + 2)));
+
+             } else {
+                balloon_list.set(0, Float.valueOf(this.str_tweet.substring(1, index)));
+                balloon_list.set(1, Float.valueOf(this.str_tweet.substring(index + 2)));
+             }
+
          }
 
     }
