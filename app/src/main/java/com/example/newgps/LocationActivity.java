@@ -23,6 +23,7 @@ import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.ImageView;
 import android.widget.Toast;
 
 import java.util.List;
@@ -59,10 +60,38 @@ import android.support.v4.app.FragmentManager;
 import android.support.v4.app.FragmentTransaction;
 import java.util.ArrayList;
 
+
+import android.support.v7.app.AppCompatActivity;
+import android.support.v4.app.FragmentManager;
+import android.support.v4.app.FragmentTransaction;
+
+import android.support.v4.app.Fragment;
+import android.support.annotation.NonNull;
+
+import android.os.Bundle;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.TextView;
+
+import java.text.ParseException;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.lang.Math;
+
+
 public class LocationActivity extends FragmentActivity implements LocationListener,SensorEventListener {
 
     private LocationManager locationManager;
     private TextView textView,textGyro,textTweet;
+
+
+    int i;
+
+    private ImageView arrowView;
+
+
+
     private StringBuilder strBuf = new StringBuilder();
     private StringBuilder strBuf_gyro = new StringBuilder();
 
@@ -76,9 +105,14 @@ public class LocationActivity extends FragmentActivity implements LocationListen
     // Twitterオブジェクト
     private Twitter twitter = null;
 
-    private ArrayList<Float> gps_list = new ArrayList<Float>(); // 0: 1: 2:
+    private ArrayList<Float> location_list = new ArrayList<Float>(); // 0:Latitude 1:longitude 2:bearing 3:Altitude
     private ArrayList<Float> gyro_list = new ArrayList<Float>(); //0:X 1:Y 2:Z
     private ArrayList<Float> balloon_list = new ArrayList<Float>(); //0:N 1:E
+
+    float distance,direction; // 気球と端末の平面距離,方角
+
+    Timer timer;
+    long interval = 30 /* msec */;
 
     public LocationActivity() {
         // OAuth認証用設定（1）
@@ -93,6 +127,7 @@ public class LocationActivity extends FragmentActivity implements LocationListen
         twitter = new TwitterFactory(configurationBuilder.build()).getInstance();
     }
 
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -104,19 +139,14 @@ public class LocationActivity extends FragmentActivity implements LocationListen
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
 
 
-
-
-
         // Get an instance of the SensorManager
         sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
-
-
 
 
         textView = findViewById(R.id.text_view);
         textGyro = findViewById(R.id.text_gyro);
         textTweet = findViewById(R.id.Tweet1);
-
+        arrowView = findViewById(R.id.arrow);
 
         // GPS測位開始
         Button buttonStart = findViewById(R.id.button_start);
@@ -135,6 +165,31 @@ public class LocationActivity extends FragmentActivity implements LocationListen
                 stopGPS();
             }
         });
+
+        init_state(); // 矢印の向きの初期化
+
+/*
+        Button button01 = findViewById(R.id.testbutton);
+        button01.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Log.d("testbuttonClick", "testbuttonclick");
+
+                FragmentManager fragmentManager = getSupportFragmentManager();
+                FragmentTransaction fragmentTransaction = fragmentManager.beginTransaction();
+
+                // BackStackを設定
+                fragmentTransaction.addToBackStack(null);
+
+                // パラメータを設定
+                fragmentTransaction.replace(R.id.container,
+                        MainFragment.newInstance("Fragment"));
+                fragmentTransaction.commit();
+            }
+        });
+*/
+
+
 
 
         /*
@@ -157,12 +212,78 @@ public class LocationActivity extends FragmentActivity implements LocationListen
             }
         };
         handler.post(r);
+
+
     }
 
-    protected void startGPS() {
+    @Override
+    protected void onResume() {
+        // このアプリケーションが表示されたら
+        super.onResume();
 
-        strBuf.append("startGPS\n");
-        textView.setText(strBuf);
+        timer = new Timer();
+        timer.schedule(new TimerTask() {
+            // このメソッドが定期的に実行される
+            @Override
+            public void run() {
+                // アニメーションの状態更新（ボールの位置とか）
+                update_state();
+
+                // ビューの更新を依頼する
+                // view.invalidate(); ではダメ
+                arrowView.postInvalidate();
+            }
+        }, interval, interval);
+    }
+
+    // 矢印の状態の初期化
+    void init_state() {
+        i = 0;
+        arrowView.setRotation(i);
+    }
+
+
+
+    // 矢印の状態の更新
+    void update_state() {
+        i += 10;
+        arrowView.setRotation(arrow_direction());
+    }
+
+    private float arrow_direction() // 方角を返す
+    {
+        if(location_list != null && location_list.size() != 0 && balloon_list != null && balloon_list.size() != 0) {
+            float Deltax = balloon_list.get(1) - location_list.get(1);
+            float Fai = 90f - (float) Math.atan((float) Math.sin(Deltax) /
+                    (float) Math.cos(location_list.get(0)) * (float) Math.tan(balloon_list.get(0))
+                    -
+                    (float) Math.sin(location_list.get(0)) * (float) Math.cos(Deltax)
+            );
+            return Fai - location_list.get(2);
+        }
+        return 0;
+    }
+
+    private float balloon_user_distance(){ // 距離を返す
+        float R = 6378.137f; // 赤道半径
+        float Deltax = balloon_list.get(1) - location_list.get(1);
+        float Distance = R * (float)Math.acos(
+                                (float)Math.sin(location_list.get(0)) * (float)Math.sin(balloon_list.get(0))
+                                +
+                                (float)Math.cos(location_list.get(0)) * (float)Math.cos(balloon_list.get(0))
+                                    * (float)Math.cos(Deltax));
+
+        return Distance;
+
+
+    }
+
+
+
+    protected void startGPS() {
+        //strBuf.append("startGPS\n");
+        Log.d("gps_status", "start");
+        //textView.setText(strBuf);
         textGyro.setText(strBuf_gyro);
 
         // Listenerの登録
@@ -216,6 +337,10 @@ public class LocationActivity extends FragmentActivity implements LocationListen
                 finish();
             }
         }
+
+
+
+
 
         super.onResume();
     }
@@ -282,28 +407,31 @@ public class LocationActivity extends FragmentActivity implements LocationListen
 
         textView.setText(strBuf);
 */
-        String strTmp = String.format(Locale.US, "GPS\n " +
-                " Latitude: %f\n " +
+        String strTmp = String.format(Locale.US, "LocationManager\n " +
+                " Latitude: %f " +
                 " Longitude: %f\n " +
-                " Bearing: %f",
-                location.getLatitude(), location.getLongitude(), location.getBearing());
+                " Bearing: %f " +
+                " Altitude: %f",
+                location.getLatitude(), location.getLongitude(), location.getBearing(), location.getAltitude());
 
         textView.setText(strTmp);
-        if(gps_list == null || gps_list.size() == 0){
-            gps_list.add(0,(float)location.getLatitude());
-            gps_list.add(1,(float)location.getLongitude());
-            gps_list.add(2,location.getBearing());
+        if(location_list == null || location_list.size() == 0){
+            location_list.add(0,(float)location.getLatitude());
+            location_list.add(1,(float)location.getLongitude());
+            location_list.add(2,location.getBearing());
+            location_list.add(3,(float)location.getAltitude());
         }else{
-            gps_list.set(0,(float)location.getLatitude());
-            gps_list.set(1,(float)location.getLongitude());
-            gps_list.set(2,location.getBearing());
+            location_list.set(0,(float)location.getLatitude());
+            location_list.set(1,(float)location.getLongitude());
+            location_list.set(2,location.getBearing());
+            location_list.set(3,(float)location.getAltitude());
         }
 /*
         // Fragment側に渡す変数を用意します。
         Bundle args = new Bundle();
         args.putParcelableArrayList("GYRO", gyro_list);
         args.putString("VALUE02", "変数の値2");
-
+/*
         // FragmentTransactionを生成。
         FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
         // TestFragmentを生成。
@@ -314,8 +442,8 @@ public class LocationActivity extends FragmentActivity implements LocationListen
         transaction.add(R.id.fragment_main, fragment);
         // FragmentTransactionをコミット
         transaction.commit();
-
 */
+
     }
 
 
@@ -333,8 +461,8 @@ public class LocationActivity extends FragmentActivity implements LocationListen
             float sensorZ = event.values[2];
 
             String strTmp = String.format(Locale.US, "Gyroscope\n " +
-                    "X: %f\n " +
-                    "Y: %f\n " +
+                    "X: %f " +
+                    "Y: %f " +
                     "Z: %f",
                     sensorX, sensorY, sensorZ);
             textGyro.setText(strTmp);
@@ -360,8 +488,9 @@ public class LocationActivity extends FragmentActivity implements LocationListen
 
         }
 
-
     }
+
+
 
 
     @Override
@@ -384,16 +513,26 @@ public class LocationActivity extends FragmentActivity implements LocationListen
     public void onStatusChanged(String provider, int status, Bundle extras) {
         switch (status) {
             case LocationProvider.AVAILABLE:
+                /*
                 strBuf.append("LocationProvider.AVAILABLE\n");
                 textView.setText(strBuf);
+                */
+                Log.d("onStatusChanged", "LocationProvider.AVAILABLE");
                 break;
             case LocationProvider.OUT_OF_SERVICE:
+                /*
                 strBuf.append("LocationProvider.OUT_OF_SERVICE\n");
                 textView.setText(strBuf);
+                */
+
+                Log.d("onStatusChanged", "LocationProvider.OUT_OF_SERVICE");
                 break;
             case LocationProvider.TEMPORARILY_UNAVAILABLE:
+               /*
                 strBuf.append("LocationProvider.TEMPORARILY_UNAVAILABLE\n");
                 textView.setText(strBuf);
+                */
+                Log.d("onStatusChanged", "LocationProvider.TEMPORARILY_UNAVAILABLE");
                 break;
         }
     }
@@ -406,9 +545,11 @@ public class LocationActivity extends FragmentActivity implements LocationListen
     private void stopGPS(){
         if (locationManager != null) {
             Log.d("LocationActivity", "onStop()");
+            /*
             strBuf.append("stopGPS\n");
             textView.setText(strBuf);
-
+*/
+            textView.setText("stopGPS\n");
             // update を止める
             if (ActivityCompat.checkSelfPermission(this,
                     Manifest.permission.ACCESS_FINE_LOCATION) !=
@@ -433,7 +574,7 @@ public class LocationActivity extends FragmentActivity implements LocationListen
          // スレッド起動
          new GetUserTweet(this).execute();
 
-         textTweet.setText(this.str_tweet);
+         textTweet.setText("Balloon_GPS\n " + this.str_tweet);
 
          // 取得される文字列の例 "N35.6858216667 E139.756656667"
          // 空白の位置indexを見つける
@@ -455,6 +596,8 @@ public class LocationActivity extends FragmentActivity implements LocationListen
         this.str_tweet = str_tweet;
     }
 
+
+
     class GetUserTweet extends AsyncTask<Void, Void, String>{
 
         private LocationActivity activity;
@@ -469,6 +612,7 @@ public class LocationActivity extends FragmentActivity implements LocationListen
             // ここに前処理を記述します
             // 例） プログレスダイアログ表示
         }
+
         @Override
         protected String doInBackground(Void... arg0) {
             try {
@@ -497,6 +641,9 @@ public class LocationActivity extends FragmentActivity implements LocationListen
             activity.setStr(result);
         }
     }
+
+
+
 
 
 }
