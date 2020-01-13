@@ -1,6 +1,5 @@
 package com.example.newgps;
 
-//AndroidX
 //import androidx.core.app.ActivityCompat;
 import android.Manifest;
 import android.app.Activity;
@@ -38,59 +37,41 @@ import twitter4j.User;
 import twitter4j.conf.ConfigurationBuilder;
 
 //import twitter4j.Tweet;
+
 //AndroidX
 //import androidx.appcompat.app.AppCompatActivity;
 //import androidx.annotation.NonNull;
 //import androidx.core.app.ActivityCompat;
 //import androidx.core.content.ContextCompat;
 
-import android.app.Activity;
-import android.os.AsyncTask;
-import android.os.Bundle;
-import android.view.View;
-import android.view.View.OnClickListener;
-import android.widget.TextView;
 
-import android.content.Intent;
-import android.os.Bundle;
-import android.support.v4.app.FragmentTransaction;
-import android.view.View;
-import android.support.v7.app.AppCompatActivity;
-import android.support.v4.app.FragmentManager;
-import android.support.v4.app.FragmentTransaction;
+import android.os.AsyncTask;
+
 import java.util.ArrayList;
 
-
-import android.support.v7.app.AppCompatActivity;
-import android.support.v4.app.FragmentManager;
-import android.support.v4.app.FragmentTransaction;
-
-import android.support.v4.app.Fragment;
-import android.support.annotation.NonNull;
-
-import android.os.Bundle;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.ViewGroup;
-import android.widget.TextView;
-
-import java.text.ParseException;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.lang.Math;
+
+import android.app.Activity;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+import android.os.Bundle;
+import android.widget.TextView;
 
 
 public class LocationActivity extends FragmentActivity implements LocationListener,SensorEventListener {
 
     private LocationManager locationManager;
-    private TextView textView,textGyro,textTweet;
+    public TextView textView,textGyro,textTweet,textDire,textElevation;
 
+    protected final static double RAD2DEG = 180/Math.PI;
 
     int i;
 
     private ImageView arrowView;
-
-
 
     private StringBuilder strBuf = new StringBuilder();
     private StringBuilder strBuf_gyro = new StringBuilder();
@@ -107,12 +88,20 @@ public class LocationActivity extends FragmentActivity implements LocationListen
 
     private ArrayList<Float> location_list = new ArrayList<Float>(); // 0:Latitude 1:longitude 2:bearing 3:Altitude
     private ArrayList<Float> gyro_list = new ArrayList<Float>(); //0:X 1:Y 2:Z
-    private ArrayList<Float> balloon_list = new ArrayList<Float>(); //0:N 1:E
+    private ArrayList<Float> balloon_list = new ArrayList<Float>(); //0:N 1:E 2:Altitude
+
+    public float[] rotationMatrix = new float[9];
+    public float[] gravity = new float[3];
+    public float[] geomagnetic = new float[3];
+    public float[] attitude = new float[3];
 
     float distance,direction; // 気球と端末の平面距離,方角
 
-    Timer timer;
+    Timer timer,timer_bearing;
+
     long interval = 30 /* msec */;
+
+    long interval_bearing = 5000 /* msec */;
 
     public LocationActivity() {
         // OAuth認証用設定（1）
@@ -146,7 +135,9 @@ public class LocationActivity extends FragmentActivity implements LocationListen
         textView = findViewById(R.id.text_view);
         textGyro = findViewById(R.id.text_gyro);
         textTweet = findViewById(R.id.Tweet1);
+        textDire = findViewById(R.id.text_direction);
         arrowView = findViewById(R.id.arrow);
+        textElevation = findViewById(R.id.text_elevation);
 
         // GPS測位開始
         Button buttonStart = findViewById(R.id.button_start);
@@ -168,39 +159,7 @@ public class LocationActivity extends FragmentActivity implements LocationListen
 
         init_state(); // 矢印の向きの初期化
 
-/*
-        Button button01 = findViewById(R.id.testbutton);
-        button01.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                Log.d("testbuttonClick", "testbuttonclick");
 
-                FragmentManager fragmentManager = getSupportFragmentManager();
-                FragmentTransaction fragmentTransaction = fragmentManager.beginTransaction();
-
-                // BackStackを設定
-                fragmentTransaction.addToBackStack(null);
-
-                // パラメータを設定
-                fragmentTransaction.replace(R.id.container,
-                        MainFragment.newInstance("Fragment"));
-                fragmentTransaction.commit();
-            }
-        });
-*/
-
-
-
-
-        /*
-        Button buttonTweet = findViewById(R.id.button1);
-        buttonTweet.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                startTweet();
-            }
-        });
-        */
         // GPS測位(定期実行)開始
         final Handler handler = new Handler();
         final Runnable r = new Runnable() {
@@ -220,7 +179,14 @@ public class LocationActivity extends FragmentActivity implements LocationListen
     protected void onResume() {
         // このアプリケーションが表示されたら
         super.onResume();
-
+        sensorManager.registerListener(
+                this,
+                sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER),
+                SensorManager.SENSOR_DELAY_GAME);
+        sensorManager.registerListener(
+                this,
+                sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD),
+                SensorManager.SENSOR_DELAY_GAME);
         timer = new Timer();
         timer.schedule(new TimerTask() {
             // このメソッドが定期的に実行される
@@ -229,11 +195,21 @@ public class LocationActivity extends FragmentActivity implements LocationListen
                 // アニメーションの状態更新（ボールの位置とか）
                 update_state();
 
+/*
+                String strDir = String.format(Locale.US,
+                        " Direction : %f \n" + " Distance : %f\n" + " Elevation : %f\n ",
+                        arrow_direction(), balloon_user_distance(), balloon_user_elevation());
+
+                textDire.setText(strDir);
+*/
+
                 // ビューの更新を依頼する
                 // view.invalidate(); ではダメ
                 arrowView.postInvalidate();
             }
         }, interval, interval);
+
+
     }
 
     // 矢印の状態の初期化
@@ -245,55 +221,71 @@ public class LocationActivity extends FragmentActivity implements LocationListen
 
 
     // 矢印の状態の更新
-    void update_state() {
-        i += 25;
-        //arrowView.setRotation(arrow_direction());
-        arrowView.setRotation(i);
+    public void update_state() {
+       // i += 25;
+
+        arrowView.setRotation(arrow_direction());
+
     }
 
-    private float arrow_direction() // 方角を返す
+    public float arrow_direction() // 方角を返す
     {
         if(location_list != null && location_list.size() != 0 && balloon_list != null && balloon_list.size() != 0) {
+
             float Deltax = balloon_list.get(1) - location_list.get(1);
-            float Fai = 90f - (float) Math.atan((float) Math.sin(Deltax) /
-                    (float) Math.cos(location_list.get(0)) * (float) Math.tan(balloon_list.get(0))
+            float Fai = 90f - (float)Math.toDegrees((float) Math.atan2(
+
+                    (float) Math.cos(Math.toRadians(location_list.get(0))) * (float) Math.tan(Math.toRadians(balloon_list.get(0)))
                     -
-                    (float) Math.sin(location_list.get(0)) * (float) Math.cos(Deltax)
-            );
+                    (float) Math.sin(Math.toRadians(location_list.get(0))) * (float) Math.cos(Math.toRadians(Deltax)),(float)Math.sin(Math.toRadians(Deltax))
+            ));
             return Fai - location_list.get(2);
         }
-        /*
-        if(location_list == null){
-            System.out.println("l_null");
-        }
-        if(location_list.size() == 0){
-            System.out.println("l_0");
-        }
-        if(balloon_list == null){
-            System.out.println("b_null");
-        }
-        if(balloon_list.size() == 0){
-            System.out.println("b_0");
-        }
-*/
+
         return 0;
     }
 
-    private float balloon_user_distance(){ // 距離を返す
-        float R = 6378.137f; // 赤道半径
-        float Deltax = balloon_list.get(1) - location_list.get(1);
-        float Distance = R * (float)Math.acos(
-                                (float)Math.sin(location_list.get(0)) * (float)Math.sin(balloon_list.get(0))
-                                +
-                                (float)Math.cos(location_list.get(0)) * (float)Math.cos(balloon_list.get(0))
-                                    * (float)Math.cos(Deltax));
+    public float balloon_user_distance(){ // 距離を返す
 
-        return Distance;
+        if(location_list != null && location_list.size() != 0 && balloon_list != null && balloon_list.size() != 0) {
+            float R = 6378.137f; // 赤道半径
 
+            float Deltax = balloon_list.get(1) - location_list.get(1);
 
+            float Distance = R * (float) Math.acos(
+                    ((float) Math.sin(Math.toRadians(location_list.get(0))) * (float) Math.sin(Math.toRadians(balloon_list.get(0)))) +
+                            ((float) Math.cos(Math.toRadians(location_list.get(0))) * (float) Math.cos(Math.toRadians(balloon_list.get(0)))
+                                    * (float) Math.cos(Math.toRadians(Deltax))));
+
+            return Distance;
+        }
+
+        return 0;
     }
 
+    public float balloon_user_elevation(){ // 仰角を返す
 
+        if(location_list != null && location_list.size() != 0 && balloon_list != null && balloon_list.size() != 0) {
+            float theta = (float)Math.atan(
+                                (balloon_list.get(2) - location_list.get(3)) / balloon_user_distance()
+                    );
+
+
+
+
+            theta = (float)Math.toDegrees(theta) + (float)(attitude[1] * RAD2DEG);
+
+            //System.out.println("theta:" + theta);
+/*
+            System.out.println(balloon_list.get(2));
+            System.out.println(location_list.get(3));
+            System.out.println(balloon_user_distance());
+*/
+            return theta;
+        }
+
+        return 0;
+    }
 
     protected void startGPS() {
         //strBuf.append("startGPS\n");
@@ -354,14 +346,12 @@ public class LocationActivity extends FragmentActivity implements LocationListen
         }
 
 
-
-
-
         super.onResume();
     }
 
     @Override
     protected void onPause() {
+        sensorManager.unregisterListener(this);
 
         if (locationManager != null) {
             Log.d("LocationActivity", "locationManager.removeUpdates");
@@ -422,6 +412,7 @@ public class LocationActivity extends FragmentActivity implements LocationListen
 
         textView.setText(strBuf);
 */
+
         String strTmp = String.format(Locale.US, "LocationManager\n " +
                 " Latitude: %f " +
                 " Longitude: %f\n " +
@@ -430,6 +421,7 @@ public class LocationActivity extends FragmentActivity implements LocationListen
                 location.getLatitude(), location.getLongitude(), location.getBearing(), location.getAltitude());
 
         textView.setText(strTmp);
+
         if(location_list == null || location_list.size() == 0){
             location_list.add(0,(float)location.getLatitude());
             location_list.add(1,(float)location.getLongitude());
@@ -441,23 +433,6 @@ public class LocationActivity extends FragmentActivity implements LocationListen
             location_list.set(2,location.getBearing());
             location_list.set(3,(float)location.getAltitude());
         }
-/*
-        // Fragment側に渡す変数を用意します。
-        Bundle args = new Bundle();
-        args.putParcelableArrayList("GYRO", gyro_list);
-        args.putString("VALUE02", "変数の値2");
-/*
-        // FragmentTransactionを生成。
-        FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
-        // TestFragmentを生成。
-        MainFragment fragment = new MainFragment();
-        //Fragmentに渡す変数をセット
-        fragment.setArguments(args);
-        // FragmentTransactionに、TestFragmentをセット
-        transaction.add(R.id.fragment_main, fragment);
-        // FragmentTransactionをコミット
-        transaction.commit();
-*/
 
     }
 
@@ -481,6 +456,7 @@ public class LocationActivity extends FragmentActivity implements LocationListen
                     "Z: %f",
                     sensorX, sensorY, sensorZ);
             textGyro.setText(strTmp);
+
             if(gyro_list == null || gyro_list.size() == 0){
                 gyro_list.add(0,sensorX);
                 gyro_list.add(1,sensorY);
@@ -490,18 +466,48 @@ public class LocationActivity extends FragmentActivity implements LocationListen
                 gyro_list.set(1, sensorY);
                 gyro_list.set(2, sensorZ);
             }
-            /*
-            String str = "GyroX = " + String.valueOf(sensorX) + "\n";
-            strBuf_gyro.append(str);
-            str = "GyroY = " + String.valueOf(sensorY) + "\n";
-            strBuf_gyro.append(str);
-            str = "GyroZ = " + String.valueOf(sensorZ) + "\n";
-            strBuf_gyro.append(str);
 
-            textGyro.setText(strBuf_gyro);
-            */
+        }else if(event.sensor.getType() == Sensor.TYPE_MAGNETIC_FIELD){
+            geomagnetic = event.values.clone();
 
+        }else if(event.sensor.getType() == Sensor.TYPE_ACCELEROMETER){
+            gravity = event.values.clone();
         }
+
+        if(geomagnetic != null && gravity != null){
+
+            SensorManager.getRotationMatrix(
+                    rotationMatrix,null,
+                    gravity, geomagnetic);
+
+            SensorManager.getOrientation(
+                    rotationMatrix,
+                    attitude);
+
+            String strEle = String.format(Locale.US, "Elevation\n " +
+                            "azimuth: %d " +
+                            "pitch: %d " +
+                            "roll: %d",
+            (int)(attitude[0] * RAD2DEG), (int)(attitude[1] * RAD2DEG), (int)(attitude[2] * RAD2DEG));
+            textGyro.setText(strEle);
+
+            /*
+            azimuthText.setText(Integer.toString(
+                    (int)(attitude[0] * RAD2DEG)));
+
+            pitchText.setText(Integer.toString(
+                    (int)(attitude[1] * RAD2DEG)));
+
+            rollText.setText(Integer.toString(
+                    (int)(attitude[2] * RAD2DEG)));
+*/
+        }
+
+        String strDir = String.format(Locale.US,
+                " Direction : %f \n" + " Distance : %f\n" + " Elevation : %f\n ",
+                arrow_direction(), balloon_user_distance(), balloon_user_elevation());
+
+        textDire.setText(strDir);
 
     }
 
@@ -592,20 +598,27 @@ public class LocationActivity extends FragmentActivity implements LocationListen
          textTweet.setText("Balloon_GPS\n " + this.str_tweet);
 
 
-         // 取得される文字列の例 "N35.6858216667 E139.756656667"
+         // 取得される文字列の例 "N35.6858216667 E139.756656667 A:26138.34235324"
          // 空白の位置indexを見つける
          // 現在は北緯、東経であると仮定している
          if(this.str_tweet.contains("N")) { //tweetを所得できている状態
 
              int index = this.str_tweet.indexOf(" ");
+             int index2 = this.str_tweet.indexOf(" ",index + 1);
 
              if (balloon_list == null || balloon_list.size() == 0) {
                  balloon_list.add(0, Float.valueOf(this.str_tweet.substring(1, index)));
-                 balloon_list.add(1, Float.valueOf(this.str_tweet.substring(index + 2)));
+                 balloon_list.add(1, Float.valueOf(this.str_tweet.substring(index + 2, index2)));
+                 balloon_list.add(2, Float.valueOf(this.str_tweet.substring(index2 + 2)));
+
+
 
              } else {
                 balloon_list.set(0, Float.valueOf(this.str_tweet.substring(1, index)));
-                balloon_list.set(1, Float.valueOf(this.str_tweet.substring(index + 2)));
+                balloon_list.set(1, Float.valueOf(this.str_tweet.substring(index + 2, index2)));
+                balloon_list.set(2, Float.valueOf(this.str_tweet.substring(index2 + 2)));
+
+
              }
 
          }
@@ -621,7 +634,6 @@ public class LocationActivity extends FragmentActivity implements LocationListen
     class GetUserTweet extends AsyncTask<Void, Void, String>{
 
         private LocationActivity activity;
-
 
         public GetUserTweet(LocationActivity activity) {
             this.activity = activity;

@@ -15,8 +15,6 @@ import android.widget.TextView;
 
 public class MainFragment extends Fragment {
 
-
-
     public static MainFragment newInstance(String str){
         Log.d("testfragment", "testfragment");
         // Fragemnt01 インスタンス生成
