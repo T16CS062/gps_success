@@ -53,13 +53,6 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.lang.Math;
 
-import android.app.Activity;
-import android.hardware.Sensor;
-import android.hardware.SensorEvent;
-import android.hardware.SensorEventListener;
-import android.hardware.SensorManager;
-import android.os.Bundle;
-import android.widget.TextView;
 
 
 public class LocationActivity extends FragmentActivity implements LocationListener,SensorEventListener {
@@ -224,38 +217,38 @@ public class LocationActivity extends FragmentActivity implements LocationListen
     public void update_state() {
        // i += 25;
 
-        arrowView.setRotation(arrow_direction());
+        arrowView.setRotation((float)arrow_direction());
 
     }
 
-    public float arrow_direction() // 方角を返す
+    public double arrow_direction() // 方角を返す
     {
         if(location_list != null && location_list.size() != 0 && balloon_list != null && balloon_list.size() != 0) {
 
-            float Deltax = balloon_list.get(1) - location_list.get(1);
-            float Fai = 90f - (float)Math.toDegrees((float) Math.atan2(
+            double Deltax = (double)balloon_list.get(1) - (double)location_list.get(1);
+            double Fai = 90 - Math.toDegrees(Math.atan2(
 
-                    (float) Math.cos(Math.toRadians(location_list.get(0))) * (float) Math.tan(Math.toRadians(balloon_list.get(0)))
+                    Math.cos(Math.toRadians((double)location_list.get(0))) * Math.tan(Math.toRadians((double)balloon_list.get(0)))
                     -
-                    (float) Math.sin(Math.toRadians(location_list.get(0))) * (float) Math.cos(Math.toRadians(Deltax)),(float)Math.sin(Math.toRadians(Deltax))
+                    Math.sin(Math.toRadians((double)location_list.get(0))) * Math.cos(Math.toRadians(Deltax)), Math.sin(Math.toRadians(Deltax))
             ));
-            return Fai - location_list.get(2);
+            return Fai - (double)location_list.get(2);
         }
 
         return 0;
     }
 
-    public float balloon_user_distance(){ // 距離を返す
+    public double balloon_user_distance(){ // 距離を返す
 
         if(location_list != null && location_list.size() != 0 && balloon_list != null && balloon_list.size() != 0) {
-            float R = 6378.137f; // 赤道半径
+            double R = 6378.137f; // 赤道半径
 
-            float Deltax = balloon_list.get(1) - location_list.get(1);
+            double Deltax = balloon_list.get(1) - location_list.get(1);
 
-            float Distance = R * (float) Math.acos(
-                    ((float) Math.sin(Math.toRadians(location_list.get(0))) * (float) Math.sin(Math.toRadians(balloon_list.get(0)))) +
-                            ((float) Math.cos(Math.toRadians(location_list.get(0))) * (float) Math.cos(Math.toRadians(balloon_list.get(0)))
-                                    * (float) Math.cos(Math.toRadians(Deltax))));
+            double Distance = R * Math.acos(
+                    (Math.sin(Math.toRadians(location_list.get(0))) * Math.sin(Math.toRadians(balloon_list.get(0)))) +
+                            (Math.cos(Math.toRadians(location_list.get(0))) * Math.cos(Math.toRadians(balloon_list.get(0)))
+                                    * Math.cos(Math.toRadians(Deltax))));
 
             return Distance;
         }
@@ -263,17 +256,17 @@ public class LocationActivity extends FragmentActivity implements LocationListen
         return 0;
     }
 
-    public float balloon_user_elevation(){ // 仰角を返す
+    public double balloon_user_elevation(){ // 仰角を返す
 
         if(location_list != null && location_list.size() != 0 && balloon_list != null && balloon_list.size() != 0) {
-            float theta = (float)Math.atan(
-                                (balloon_list.get(2) - location_list.get(3)) / balloon_user_distance()
+            double theta = Math.atan(
+                                ((double)balloon_list.get(2) - (double)location_list.get(3)) / balloon_user_distance()
                     );
 
 
 
 
-            theta = (float)Math.toDegrees(theta) + (float)(attitude[1] * RAD2DEG);
+            theta = Math.toDegrees(theta) + (attitude[1] * RAD2DEG);
 
             //System.out.println("theta:" + theta);
 /*
@@ -381,37 +374,6 @@ public class LocationActivity extends FragmentActivity implements LocationListen
     @Override
     public void onLocationChanged(Location location) {
 
-/*
-        strBuf.append("----------\n");
-
-        String str = "Latitude = " +String.valueOf(location.getLatitude()) + "\n";
-        strBuf.append(str);
-
-        str = "Longitude = " + String.valueOf(location.getLongitude()) + "\n";
-        strBuf.append(str);
-
-        str = "Accuracy = " + String.valueOf(location.getAccuracy()) + "\n";
-        strBuf.append(str);
-
-        str = "Altitude = " + String.valueOf(location.getAltitude()) + "\n";
-        strBuf.append(str);
-
-        SimpleDateFormat sdf = new SimpleDateFormat("MM/dd HH:mm:ss", Locale.JAPAN);
-        String currentTime = sdf.format(location.getTime());
-
-        str = "Time = " + currentTime + "\n";
-        strBuf.append(str);
-
-        str = "Speed = " + String.valueOf(location.getSpeed()) + "\n";
-        strBuf.append(str);
-
-        str = "Bearing = " + String.valueOf(location.getBearing()) + "\n";
-        strBuf.append(str);
-
-        strBuf.append("----------\n");
-
-        textView.setText(strBuf);
-*/
 
         String strTmp = String.format(Locale.US, "LocationManager\n " +
                 " Latitude: %f " +
@@ -504,7 +466,7 @@ public class LocationActivity extends FragmentActivity implements LocationListen
         }
 
         String strDir = String.format(Locale.US,
-                " Direction : %f \n" + " Distance : %f\n" + " Elevation : %f\n ",
+                " Direction : %f \n" + " Distance : %f km\n" + " Elevation : %f\n ",
                 arrow_direction(), balloon_user_distance(), balloon_user_elevation());
 
         textDire.setText(strDir);
@@ -673,9 +635,6 @@ public class LocationActivity extends FragmentActivity implements LocationListen
             activity.setStr(result);
         }
     }
-
-
-
 
 
 }
